@@ -4,3 +4,4 @@ langchain-chroma
 langchain-core
 langchain-text-splitters
 neo4j
+streamlit
