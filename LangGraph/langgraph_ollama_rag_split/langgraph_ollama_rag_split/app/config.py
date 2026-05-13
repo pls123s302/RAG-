@@ -3,7 +3,7 @@
 后面要换模型、换 Chroma 路径，只改这个文件。
 """
 
-OLLAMA_URL = "http://localhost:11434"
+OLLAMA_URL = "http://192.168.1.104:11434"
 GENERATE_MODEL = "qwen3:8b"             # 生成 / 路由 / 判断模型
 EMBED_MODEL = "qwen3-embedding:0.6b"    # 嵌入模型
 
