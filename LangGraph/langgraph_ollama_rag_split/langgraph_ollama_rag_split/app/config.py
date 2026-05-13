@@ -10,7 +10,7 @@ EMBED_MODEL = "qwen3-embedding:0.6b"    # 嵌入模型
 CHROMA_DB_PATH = "./chroma_db"          # Chroma 数据库路径
 COLLECTION_NAME = "demo_rag"
 
-RETRIEVE_TOP_K = 4
+RETRIEVE_TOP_K = 10
 
 # ========== Neo4j 知识图谱配置 ==========
 
@@ -35,3 +35,12 @@ ENABLE_KNOWLEDGE_GRAPH = True
 
 # 查询时，从 Neo4j 召回多少条实体关系
 GRAPH_RETRIEVE_TOP_K = 20
+
+# ========== 入库去重配置 ==========
+ENABLE_CHUNK_DEDUP = True
+
+# 当新 chunk 和已有 chunk 的余弦相似度 >= 该阈值时，跳过入库
+CHUNK_DEDUP_SIMILARITY_THRESHOLD = 0.95
+
+# 查最相似的几个已有 chunk
+CHUNK_DEDUP_TOP_K = 3

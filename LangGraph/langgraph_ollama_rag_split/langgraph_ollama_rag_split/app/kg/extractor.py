@@ -5,57 +5,75 @@ from app.kg.json_utils import extract_json_object
 from app.models import get_llm
 
 
+TYPE_ALIASES = {
+    "person": "人物",
+    "people": "人物",
+    "character": "人物",
+    "人物": "人物",
+    "角色": "人物",
+
+    "location": "地点",
+    "locayion": "地点",
+    "place": "地点",
+    "地点": "地点",
+    "地名": "地点",
+
+    "organization": "组织",
+    "organisation": "组织",
+    "org": "组织",
+    "组织": "组织",
+    "机构": "组织",
+
+    "concept": "概念",
+    "概念": "概念",
+
+    "event": "事件",
+    "事件": "事件",
+
+    "item": "物品",
+    "object": "物品",
+    "物品": "物品",
+}
+
+
+def normalize_entity_type(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "其他"
+
+    key = text.lower()
+    return TYPE_ALIASES.get(key, TYPE_ALIASES.get(text, text))
+
+
 def build_kg_extraction_prompt(text: str, metadata: dict | None = None) -> str:
-    """
-    构建知识图谱抽取 Prompt。
-
-    这里不固定实体类型，因为你后面可能会处理：
-    人物、地点、组织、武魂、魂兽、魂技、物品、事件、概念、等级、称号等很多类型。
-    """
-
-    metadata_text = json.dumps(
-        metadata or {},
-        ensure_ascii=False,
-    )
+    metadata_text = json.dumps(metadata or {}, ensure_ascii=False)
 
     return f"""
-你是一个知识图谱抽取器，负责从文本中抽取实体和实体之间的关系。
+你是通用知识图谱抽取器。请从文本中抽取实体和实体关系。
 
-请从下面文本中抽取：
-1. 实体 entities
-2. 实体之间的关系 relationships
+规则：
+1. 只抽取文本明确支持的信息，不要推测。
+2. 实体 name 使用原文中的稳定名称，避免同义改写。
+3. type 使用简短中文词；可用通用类型如：人物、地点、组织、事件、物品、概念、时间；也可使用领域类型。
+4. 不要输出 Neo4j label，不要输出 Person、Location、Organization、Concept 作为类型。
+5. 关系 type 使用简短动词或关系词，如：属于、位于、拥有、使用、导致、包含、相关。
+6. evidence 填写支持关系的原文短句。
+7. 只输出合法 JSON，不要 Markdown，不要解释。
 
-要求：
-1. 实体类型可以自由扩展，不要局限于固定类型。
-2. 如果是小说文本，常见实体类型包括：
-   人物、组织、地点、武魂、魂兽、魂技、物品、事件、概念、等级、称号、其他。
-3. 关系类型要简短，例如：
-   拥有、属于、师从、敌对、位于、使用、击败、相关、身份是、能力是、出现于。
-4. 只抽取文本中明确支持的信息。
-5. 不要编造文本中没有的信息。
-6. 必须只输出合法 JSON。
-7. 不要输出 Markdown。
-8. 不要输出解释说明。
-
-输出格式必须严格如下：
-
+JSON 格式：
 {{
   "entities": [
-    {{
-      "name": "实体名称",
-      "type": "实体类型",
-      "description": "基于文本的简短描述"
-    }}
+    {{"name": "实体名称", "type": "实体类型", "description": "简短描述"}}
   ],
   "relationships": [
     {{
-      "source": "源实体名称",
+      "source": "源实体",
       "source_type": "源实体类型",
-      "target": "目标实体名称",
+      "target": "目标实体",
       "target_type": "目标实体类型",
       "type": "关系类型",
       "description": "关系说明",
-      "evidence": "支持该关系的原文短句"
+      "evidence": "原文证据"
     }}
   ]
 }}
@@ -63,39 +81,33 @@ def build_kg_extraction_prompt(text: str, metadata: dict | None = None) -> str:
 文档元数据：
 {metadata_text}
 
-待抽取文本：
+文本：
 {text}
 """
 
 
 def _clean_text(value: Any) -> str:
-    """
-    清洗模型输出里的字段。
-    """
     return str(value or "").strip()
 
 
 def _deduplicate_entities(entities: list[dict]) -> list[dict]:
     """
-    根据 name + type 去重实体。
+    按 name 去重，不再按 name + type 去重。
     """
     seen = set()
     result = []
 
     for entity in entities:
         name = _clean_text(entity.get("name"))
-        entity_type = _clean_text(entity.get("type")) or "其他"
+        entity_type = normalize_entity_type(entity.get("type"))
 
         if not name:
             continue
 
-        key = (name, entity_type)
-
-        if key in seen:
+        if name in seen:
             continue
 
-        seen.add(key)
-
+        seen.add(name)
         result.append(
             {
                 "name": name,
@@ -108,9 +120,6 @@ def _deduplicate_entities(entities: list[dict]) -> list[dict]:
 
 
 def _deduplicate_relationships(relationships: list[dict]) -> list[dict]:
-    """
-    根据 source + target + type 去重关系。
-    """
     seen = set()
     result = []
 
@@ -122,16 +131,14 @@ def _deduplicate_relationships(relationships: list[dict]) -> list[dict]:
         if not source or not target:
             continue
 
-        source_type = _clean_text(rel.get("source_type")) or "其他"
-        target_type = _clean_text(rel.get("target_type")) or "其他"
+        source_type = normalize_entity_type(rel.get("source_type"))
+        target_type = normalize_entity_type(rel.get("target_type"))
 
         key = (source, target, rel_type)
-
         if key in seen:
             continue
 
         seen.add(key)
-
         result.append(
             {
                 "source": source,
@@ -148,16 +155,6 @@ def _deduplicate_relationships(relationships: list[dict]) -> list[dict]:
 
 
 def extract_kg_from_text(text: str, metadata: dict | None = None) -> dict:
-    """
-    从文本中抽取知识图谱数据。
-
-    返回格式：
-    {
-        "entities": [...],
-        "relationships": [...]
-    }
-    """
-
     prompt = build_kg_extraction_prompt(
         text=text,
         metadata=metadata,
@@ -165,7 +162,6 @@ def extract_kg_from_text(text: str, metadata: dict | None = None) -> dict:
 
     response = get_llm().invoke(prompt)
     raw_output = response.content
-
     data = extract_json_object(raw_output)
 
     entities = data.get("entities", []) or []
